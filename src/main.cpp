@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <format>
 #include <sys/signal.h>
+#include <time.h>
 #include <wayland-client.h>
+#include <utility>
 #include <vector>
 #include "protocols/hyprland-ctm-control-v1.hpp"
 #include "protocols/wayland.hpp"
@@ -17,6 +19,7 @@ using namespace Hyprutils::Memory;
 #define SP CSharedPointer
 #define WP CWeakPointer
 
+using std::pair;
 using std::vector;
 using std::string;
 using std::stoi;
@@ -80,6 +83,38 @@ Transition ParseTransition(const string& arg) {
   };
 }
 
+// Finds an iterator corresponding to the upcoming transition & how long we should wait for it (in seconds)
+// The transitions vector cannot be empty.
+pair<vector<Transition>::const_iterator, int> NextTransitionIt(const vector<Transition>& transitions) {
+  struct tm now;
+  time_t ts = time(NULL);
+  localtime_r(&ts, &now);
+  auto it = std::find_if(transitions.begin(), transitions.end(), [&ts, &now](const Transition& t) {
+    return t.hour > now.tm_hour || (t.hour == now.tm_hour && t.minute > now.tm_min);
+  });
+  if (it == transitions.end()) {
+    // Not found means we're after the last one -> return the first one, but it's tomorrow
+    it = transitions.begin();
+    const int wait = 60 * it->hour + it->minute + (23 - now.tm_hour) * 60 + (60 - now.tm_min);
+    return pair<vector<Transition>::const_iterator, int>(it, wait);
+  }
+  const int wait = 60 * (it->hour - now.tm_hour) + (it->hour == now.tm_hour ? it->minute - now.tm_min : it->minute + (60 - now.tm_min));
+  return pair<vector<Transition>::const_iterator, int>(it, wait);
+}
+
+// Finds the previous transition
+Transition PrevTransition(const vector<Transition>& transitions) {
+  const auto next = NextTransitionIt(transitions).first;
+  return next == transitions.begin() ? transitions.back() : *std::prev(next);
+}
+
+// Finds the upcoming transition, and how long we should wait for it (in seconds)
+// Very similar to NextTransitionIt except a bit more convenient below.
+pair<Transition, int> NextTransition(const vector<Transition>& transitions) {
+  const auto next = NextTransitionIt(transitions);
+  return pair<Transition, int>(*next.first, next.second);
+}
+
 void sigHandler(int sig) {
     if (state.pCTMMgr) // reset the CTM state...
         state.pCTMMgr.reset();
@@ -121,13 +156,15 @@ int main(int argc, char** argv, char** envp) {
       Debug::log(CRIT, "%s", ex.what());
       return 1;
     }
-    Debug::log(INFO, "Transitions loaded:");
+    Debug::log(INFO, "┣ Transitions loaded:");
     for (const auto& t: transitions) {
-      Debug::log(INFO, "  {}{}: {}K {}", t.hour, t.minute, t.kelvin, t.matrix.toString());
+      Debug::log(INFO, "┣   {:02}:{:02}: {}K {}", t.hour, t.minute, t.kelvin, t.matrix.toString());
     }
+    auto t = PrevTransition(transitions);
+    Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}K", t.hour, t.minute, t.kelvin);
 
-    // calculate the matrix
-    state.ctm = matrixForKelvin(6000);
+    // set this as the matrix
+    state.ctm = t.matrix;
 
     Debug::log(NONE, "┣ Calculated the CTM to be {}\n┃", state.ctm.toString());
 
