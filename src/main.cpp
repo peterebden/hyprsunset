@@ -107,7 +107,7 @@ pair<vector<Transition>::const_iterator, Wait> NextTransitionIt(const vector<Tra
   }
   const Wait wait = {
     .hours = tomorrow ? it->hour + (23 - now.tm_hour) : it->hour - now.tm_hour,
-    .minutes = it->hour == now.tm_hour || tomorrow ? it->minute - now.tm_min : it->minute + (60 - now.tm_min),
+    .minutes = it->hour == now.tm_hour || tomorrow ? it->minute - now.tm_min - 1 : it->minute + (60 - now.tm_min) - 1,
     .seconds = 60 - now.tm_sec,
   };
   return pair<vector<Transition>::const_iterator, Wait>(it, wait);
@@ -167,12 +167,12 @@ int main(int argc, char** argv, char** envp) {
       Debug::log(CRIT, "%s", ex.what());
       return 1;
     }
-    Debug::log(INFO, "┣ Transitions loaded:");
+    Debug::log(NONE, "┣ Transitions loaded:");
     for (const auto& t: transitions) {
-      Debug::log(INFO, "┣   {:02}:{:02}: {}K {}", t.hour, t.minute, t.kelvin, t.matrix.toString());
+      Debug::log(NONE, "┣   {:02}:{:02}: {}K {}", t.hour, t.minute, t.kelvin, t.matrix.toString());
     }
     auto t = PrevTransition(transitions);
-    Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}K", t.hour, t.minute, t.kelvin);
+    Debug::log(NONE, "┣ Current state: {:02}:{:02}: {}K", t.hour, t.minute, t.kelvin);
 
     // set this as the matrix
     state.ctm = t.matrix;
@@ -238,9 +238,9 @@ int main(int argc, char** argv, char** envp) {
       wl_display_dispatch(state.wlDisplay);
 
       auto [transition, wait] = NextTransition(transitions);
-      Debug::log(INFO, "┣ Waiting {:2}h{:02}m{:02}s for next transition (at {:02}:{:02})", wait.hours, wait.minutes, wait.seconds, transition.hour, transition.minute);
+      Debug::log(NONE, "┣ Waiting {:2}h{:02}m{:02}s for next transition (at {:02}:{:02})", wait.hours, wait.minutes, wait.seconds, transition.hour, transition.minute);
       sleep(60 * 60 * wait.hours + 60 * wait.minutes + wait.seconds);
-      Debug::log(INFO, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
+      Debug::log(NONE, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
       state.ctm = t.matrix;
 
       // while (wl_display_dispatch(state.wlDisplay) != -1) {
