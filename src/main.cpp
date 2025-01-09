@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cmath>
 #include <algorithm>
+#include <format>
 #include <sys/signal.h>
 #include <wayland-client.h>
 #include <vector>
@@ -18,6 +19,7 @@ using namespace Hyprutils::Memory;
 
 using std::vector;
 using std::string;
+using std::stoi;
 
 // kindly borrowed from https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
 static Mat3x3 matrixForKelvin(unsigned long long temp) {
@@ -56,6 +58,28 @@ struct {
     Mat3x3                            ctm;
 } state;
 
+struct Transition {
+  int hour;
+  int minute;
+  int kelvin;
+  Mat3x3 matrix;
+};
+
+// Parses a transition from the command-line
+Transition ParseTransition(const string& arg) {
+  // Only acceptable format is <4 digits>:<4 digits>
+  if (arg.size() != 9 || arg[4] != ':') {
+    throw std::runtime_error(std::format("invalid argument: {}", arg));
+  }
+  const int kelvin = stoi(arg.substr(5, 9));
+  return Transition{
+    .hour = stoi(arg.substr(0, 2)),
+    .minute = stoi(arg.substr(2, 4)),
+    .kelvin = kelvin,
+    .matrix = matrixForKelvin(kelvin),
+  };
+}
+
 void sigHandler(int sig) {
     if (state.pCTMMgr) // reset the CTM state...
         state.pCTMMgr.reset();
@@ -85,10 +109,21 @@ static void printHelp() {
 int main(int argc, char** argv, char** envp) {
     Debug::log(NONE, "┏ hyprsunset v{} ━━╸\n┃", HYPRSUNSET_VERSION);
 
-    vector<string> args(argv + 1, argv + argc);
-    if (std::find(args.begin(), args.end(), "--help") != args.end() || std::find(args.begin(), args.end(), "-h") != args.end()) {
+    const vector<string> args(argv + 1, argv + argc);
+    if (std::find(args.begin(), args.end(), "--help") != args.end() || std::find(args.begin(), args.end(), "-h") != args.end() || args.empty()) {
       printHelp();
       return 0;
+    }
+    vector<Transition> transitions;
+    try {
+      std::transform(args.begin(), args.end(), std::back_inserter(transitions), ParseTransition);
+    } catch (std::exception& ex) {
+      Debug::log(CRIT, "%s", ex.what());
+      return 1;
+    }
+    Debug::log(INFO, "Transitions loaded:");
+    for (const auto& t: transitions) {
+      Debug::log(INFO, "  {}{}: {}K {}", t.hour, t.minute, t.kelvin, t.matrix.toString());
     }
 
     // calculate the matrix
