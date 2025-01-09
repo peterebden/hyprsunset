@@ -16,6 +16,9 @@ using namespace Hyprutils::Memory;
 #define SP CSharedPointer
 #define WP CWeakPointer
 
+using std::vector;
+using std::string;
+
 // kindly borrowed from https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
 static Mat3x3 matrixForKelvin(unsigned long long temp) {
     float r = 1.F, g = 1.F, b = 1.F;
@@ -74,58 +77,22 @@ static void commitCTMs() {
 }
 
 static void printHelp() {
-    Debug::log(NONE, "┣ --temperature       -t  →  Set the temperature in K (default 6000)");
-    Debug::log(NONE, "┣ --identity          -i  →  Use the identity matrix (no color change)");
-    Debug::log(NONE, "┣ --help              -h  →  Print this info");
-    Debug::log(NONE, "╹");
+  Debug::log(NONE, "┣ Usage: hyprsunset <time1>:<temperature1> [<time2>:<temperature2> ...]");
+  Debug::log(NONE, "┣ For example: hyprsunset 0900:6000 2100:4000");
+  Debug::log(NONE, "╹");
 }
 
 int main(int argc, char** argv, char** envp) {
     Debug::log(NONE, "┏ hyprsunset v{} ━━╸\n┃", HYPRSUNSET_VERSION);
 
-    unsigned long long KELVIN    = 6000; // default
-    bool               kelvinSet = false, identity = false;
-
-    for (int i = 1; i < argc; ++i) {
-        if (argv[i] == std::string{"-t"} || argv[i] == std::string{"--temperature"}) {
-            if (i + 1 >= argc) {
-                Debug::log(NONE, "✖ No temperature provided for {}", argv[i]);
-                return 1;
-            }
-
-            try {
-                KELVIN    = std::stoull(argv[i + 1]);
-                kelvinSet = true;
-            } catch (std::exception& e) {
-                Debug::log(NONE, "✖ Temperature {} is not valid", argv[i + 1]);
-                return 1;
-            }
-
-            ++i;
-        } else if (argv[i] == std::string{"-i"} || argv[i] == std::string{"--identity"}) {
-            identity = true;
-        } else if (argv[i] == std::string{"-h"} || argv[i] == std::string{"--help"}) {
-            printHelp();
-            return 0;
-        } else {
-            Debug::log(NONE, "✖ Argument not recognized: {}", argv[i]);
-            printHelp();
-            return 1;
-        }
+    vector<string> args(argv + 1, argv + argc);
+    if (std::find(args.begin(), args.end(), "--help") != args.end() || std::find(args.begin(), args.end(), "-h") != args.end()) {
+      printHelp();
+      return 0;
     }
-
-    if (KELVIN < 1000 || KELVIN > 20000) {
-        Debug::log(NONE, "✖ Temperature invalid: {}. The temperature has to be between 1000 and 20000K", KELVIN);
-        return 1;
-    }
-
-    if (!identity)
-        Debug::log(NONE, "┣ Setting the temperature to {}K{}\n┃", KELVIN, kelvinSet ? "" : " (default)");
-    else
-        Debug::log(NONE, "┣ Resetting the matrix (--identity passed)\n┃", KELVIN, kelvinSet ? "" : " (default)");
 
     // calculate the matrix
-    state.ctm = identity ? Mat3x3::identity() : matrixForKelvin(KELVIN);
+    state.ctm = matrixForKelvin(6000);
 
     Debug::log(NONE, "┣ Calculated the CTM to be {}\n┃", state.ctm.toString());
 
@@ -136,7 +103,7 @@ int main(int argc, char** argv, char** envp) {
     state.wlDisplay = wl_display_connect(nullptr);
 
     if (!state.wlDisplay) {
-        Debug::log(NONE, "✖ Couldn't connect to a wayland compositor", KELVIN);
+        Debug::log(NONE, "✖ Couldn't connect to a wayland compositor");
         return 1;
     }
 
@@ -170,7 +137,7 @@ int main(int argc, char** argv, char** envp) {
     wl_display_roundtrip(state.wlDisplay);
 
     if (!state.pCTMMgr) {
-        Debug::log(NONE, "✖ Compositor doesn't support hyprland-ctm-control-v1, are you running on Hyprland?", KELVIN);
+        Debug::log(NONE, "✖ Compositor doesn't support hyprland-ctm-control-v1, are you running on Hyprland?");
         return 1;
     }
 
