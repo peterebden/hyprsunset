@@ -113,12 +113,11 @@ pair<vector<Transition>::const_iterator, int> NextTransitionIt(const vector<Tran
     return t.hour > now.tm_hour || (t.hour == now.tm_hour && t.minute > now.tm_min);
   });
   // Not found means we're after the last one -> return the first one, but it's tomorrow
-  int second_of_day = it->SecondOfDay();
   const bool tomorrow = it == transitions.end();
   if (tomorrow) {
     it = transitions.begin();
-    second_of_day += 24 * 60 * 60;
   }
+  const int second_of_day = it->SecondOfDay() + (tomorrow ? 24 * 60 * 60 : 0);
   const int current_second = now.tm_hour * 60 * 60 + now.tm_min * 60 + now.tm_sec;
   return pair<vector<Transition>::const_iterator, int>(it, second_of_day - current_second);
 }
