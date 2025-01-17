@@ -149,7 +149,8 @@ static void printHelp() {
 }
 
 int main(int argc, char** argv, char** envp) {
-    Debug::log(NONE, "┏ hyprsunset v{} ━━╸\n┃", HYPRSUNSET_VERSION);
+    Debug::log(NONE, "┏ hyprsunset v{} ━━╸", HYPRSUNSET_VERSION);
+    Debug::log(NONE, "┃");
 
     const vector<string> args(argv + 1, argv + argc);
     if (std::find(args.begin(), args.end(), "--help") != args.end() || std::find(args.begin(), args.end(), "-h") != args.end() || args.empty()) {
@@ -173,7 +174,8 @@ int main(int argc, char** argv, char** envp) {
     // set this as the matrix
     state.ctm = t.matrix;
 
-    Debug::log(NONE, "┣ Calculated the CTM to be {}\n┃", state.ctm.toString());
+    Debug::log(NONE, "┣ Calculated the CTM to be {}", state.ctm.toString());
+    Debug::log(NONE, "┃");
 
     // connect to the wayland server
     if (const auto SERVER = getenv("XDG_CURRENT_DESKTOP"); SERVER)
@@ -220,7 +222,7 @@ int main(int argc, char** argv, char** envp) {
         return 1;
     }
 
-    auto applyCTMs = [&state] {
+    auto applyCTMs = [] {
         for (auto& o : state.outputs) {
           o->applyCTM();
         }
