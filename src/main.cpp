@@ -220,22 +220,25 @@ int main(int argc, char** argv, char** envp) {
         return 1;
     }
 
-    std::thread thread([&] {
-      Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
-      while (true) {
+    auto applyCTMs = [&state] {
         for (auto& o : state.outputs) {
           o->applyCTM();
         }
-
         commitCTMs();
+    };
 
-        state.initialized = true;
+    Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
+    applyCTMs();
+    state.initialized = true;
 
+    std::thread thread([&] {
+      while (true) {
         auto [transition, wait] = NextTransition(transitions);
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         sleep(wait);
         Debug::log(INFO, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
         state.ctm = t.matrix;
+        applyCTMs();
       }
     });
 
