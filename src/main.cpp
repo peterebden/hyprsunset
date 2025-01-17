@@ -86,21 +86,34 @@ struct Transition {
   int SecondOfDay() const {
     return hour * 60 * 60 + minute * 60;
   }
+
+  string Kelvin() const {
+    return kelvin == 0 ? "identity" : std::to_string(kelvin) + "K";
+  }
 };
 
-// Parses a transition from the command-line
-Transition ParseTransition(const string& arg) {
-  // Only acceptable format is <4 digits>:<4 digits>
-  if (arg.size() != 9 || arg[4] != ':') {
-    throw std::runtime_error(std::format("invalid argument: {}", arg));
-  }
-  const int kelvin = stoi(arg.substr(5, 9));
+Transition CreateTransition(const string& arg, int kelvin, Mat3x3 matrix) {
   return Transition{
     .hour = stoi(arg.substr(0, 2)),
     .minute = stoi(arg.substr(2, 4)),
     .kelvin = kelvin,
-    .matrix = matrixForKelvin(kelvin),
+    .matrix = matrix,
   };
+}
+
+// Parses a transition from the command-line
+Transition ParseTransition(const string& arg) {
+  // Special case for the identity matrix (suffixed with :i or :identity)
+  // Otherwise the only acceptable format is <4 digits>:<4 digits>
+  if (arg.ends_with(":i") && arg.size() == 6) {
+    return CreateTransition(arg, 0, Mat3x3::identity());
+  } else if (arg.ends_with(":identity") && arg.size() == 13) {
+    return CreateTransition(arg, 0, Mat3x3::identity());
+  } else if (arg.size() != 9 || arg[4] != ':') {
+    throw std::runtime_error(std::format("invalid argument: {}", arg));
+  }
+  const int kelvin = stoi(arg.substr(5, 9));
+  return CreateTransition(arg, kelvin, matrixForKelvin(kelvin));
 }
 
 // Finds an iterator corresponding to the upcoming transition & how long we should wait for it (in seconds)
@@ -179,10 +192,10 @@ int main(int argc, char** argv, char** envp) {
     }
     Debug::log(INFO, "┣ Transitions loaded:");
     for (const auto& t: transitions) {
-      Debug::log(INFO, "┣   {:02}:{:02}: {}K {}", t.hour, t.minute, t.kelvin, t.matrix.toString());
+      Debug::log(INFO, "┣   {:02}:{:02}: {} {}", t.hour, t.minute, t.Kelvin(), t.matrix.toString());
     }
     auto t = PrevTransition(transitions);
-    Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}K", t.hour, t.minute, t.kelvin);
+    Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}", t.hour, t.minute, t.Kelvin());
 
     // set this as the matrix
     state.SetCTM(t.matrix);
@@ -251,7 +264,7 @@ int main(int argc, char** argv, char** envp) {
         auto [transition, wait] = NextTransition(transitions);
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         sleep(wait);
-        Debug::log(INFO, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
+        Debug::log(INFO, "┣ Applying CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
         state.SetCTM(t.matrix);
         applyCTMs();
       }
