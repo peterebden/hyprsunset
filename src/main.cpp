@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <format>
+#include <mutex>
 #include <sys/signal.h>
 #include <time.h>
 #include <thread>
@@ -60,7 +61,20 @@ struct {
     wl_display*                       wlDisplay = nullptr;
     std::vector<SP<SOutput>>          outputs;
     bool                              initialized = false;
-    Mat3x3                            ctm;
+
+    Mat3x3 CTM() const {
+      std::lock_guard<std::mutex> guard(lock);
+      return ctm;
+    }
+
+    void SetCTM(const Mat3x3& matrix) {
+      std::lock_guard<std::mutex> guard(lock);
+      ctm = matrix;
+    }
+
+private:
+    Mat3x3             ctm;
+    mutable std::mutex lock;
 } state;
 
 struct Transition {
@@ -132,7 +146,7 @@ void sigHandler(int sig) {
 }
 
 void SOutput::applyCTM() {
-    auto arr = state.ctm.getMatrix();
+    auto arr = state.CTM().getMatrix();
     state.pCTMMgr->sendSetCtmForOutput(output->resource(), wl_fixed_from_double(arr[0]), wl_fixed_from_double(arr[1]), wl_fixed_from_double(arr[2]), wl_fixed_from_double(arr[3]),
                                        wl_fixed_from_double(arr[4]), wl_fixed_from_double(arr[5]), wl_fixed_from_double(arr[6]), wl_fixed_from_double(arr[7]),
                                        wl_fixed_from_double(arr[8]));
@@ -172,9 +186,9 @@ int main(int argc, char** argv, char** envp) {
     Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}K", t.hour, t.minute, t.kelvin);
 
     // set this as the matrix
-    state.ctm = t.matrix;
+    state.SetCTM(t.matrix);
 
-    Debug::log(NONE, "┣ Calculated the CTM to be {}", state.ctm.toString());
+    Debug::log(NONE, "┣ Calculated the CTM to be {}", state.CTM().toString());
     Debug::log(NONE, "┃");
 
     // connect to the wayland server
@@ -239,7 +253,7 @@ int main(int argc, char** argv, char** envp) {
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         sleep(wait);
         Debug::log(INFO, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
-        state.ctm = t.matrix;
+        state.SetCTM(t.matrix);
         applyCTMs();
       }
     });
