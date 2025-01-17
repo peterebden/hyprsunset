@@ -67,13 +67,10 @@ struct Transition {
   int minute;
   int kelvin;
   Mat3x3 matrix;
-};
 
-// Represents a duration that we need to wait for.
-struct Wait {
-  int hours;
-  int minutes;
-  int seconds;
+  int SecondOfDay() const {
+    return hour * 60 * 60 + minute * 60;
+  }
 };
 
 // Parses a transition from the command-line
@@ -91,9 +88,9 @@ Transition ParseTransition(const string& arg) {
   };
 }
 
-// Finds an iterator corresponding to the upcoming transition & how long we should wait for it
+// Finds an iterator corresponding to the upcoming transition & how long we should wait for it (in seconds)
 // The transitions vector cannot be empty.
-pair<vector<Transition>::const_iterator, Wait> NextTransitionIt(const vector<Transition>& transitions) {
+pair<vector<Transition>::const_iterator, int> NextTransitionIt(const vector<Transition>& transitions) {
   struct tm now;
   time_t ts = time(NULL);
   localtime_r(&ts, &now);
@@ -101,16 +98,14 @@ pair<vector<Transition>::const_iterator, Wait> NextTransitionIt(const vector<Tra
     return t.hour > now.tm_hour || (t.hour == now.tm_hour && t.minute > now.tm_min);
   });
   // Not found means we're after the last one -> return the first one, but it's tomorrow
+  int second_of_day = it->SecondOfDay();
   const bool tomorrow = it == transitions.end();
   if (tomorrow) {
     it = transitions.begin();
+    second_of_day += 24 * 60 * 60;
   }
-  const Wait wait = {
-    .hours = tomorrow ? it->hour + (23 - now.tm_hour) : it->hour - now.tm_hour,
-    .minutes = it->hour == now.tm_hour || tomorrow ? it->minute - now.tm_min : it->minute + (60 - now.tm_min),
-    .seconds = 60 - now.tm_sec,
-  };
-  return pair<vector<Transition>::const_iterator, Wait>(it, wait);
+  const int current_second = now.tm_hour * 60 * 60 + now.tm_min * 60 + now.tm_sec;
+  return pair<vector<Transition>::const_iterator, int>(it, second_of_day - current_second);
 }
 
 // Finds the previous transition
@@ -121,9 +116,9 @@ Transition PrevTransition(const vector<Transition>& transitions) {
 
 // Finds the upcoming transition, and how long we should wait for it (in seconds)
 // Very similar to NextTransitionIt except a bit more convenient below.
-pair<Transition, Wait> NextTransition(const vector<Transition>& transitions) {
+pair<Transition, int> NextTransition(const vector<Transition>& transitions) {
   const auto next = NextTransitionIt(transitions);
-  return pair<Transition, Wait>(*next.first, next.second);
+  return pair<Transition, int>(*next.first, next.second);
 }
 
 void sigHandler(int sig) {
@@ -238,8 +233,8 @@ int main(int argc, char** argv, char** envp) {
       wl_display_dispatch(state.wlDisplay);
 
       auto [transition, wait] = NextTransition(transitions);
-      Debug::log(INFO, "┣ Waiting {:2}h{:02}m{:02}s for next transition (at {:02}:{:02})", wait.hours, wait.minutes, wait.seconds, transition.hour, transition.minute);
-      sleep(60 * 60 * wait.hours + 60 * wait.minutes + wait.seconds);
+      Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
+      sleep(wait);
       Debug::log(INFO, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
       state.ctm = t.matrix;
 
