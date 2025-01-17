@@ -4,6 +4,7 @@
 #include <format>
 #include <sys/signal.h>
 #include <time.h>
+#include <thread>
 #include <wayland-client.h>
 #include <utility>
 #include <unistd.h>
@@ -219,28 +220,27 @@ int main(int argc, char** argv, char** envp) {
         return 1;
     }
 
-    Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
-    while (true) {
-      for (auto& o : state.outputs) {
-        o->applyCTM();
+    std::thread thread([&] {
+      Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
+      while (true) {
+        for (auto& o : state.outputs) {
+          o->applyCTM();
+        }
+
+        commitCTMs();
+
+        state.initialized = true;
+
+        auto [transition, wait] = NextTransition(transitions);
+        Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
+        sleep(wait);
+        Debug::log(INFO, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
+        state.ctm = t.matrix;
       }
+    });
 
-      commitCTMs();
-
-      state.initialized = true;
-
-      // TODO(peterebden): very unsure of this bit
-      wl_display_dispatch(state.wlDisplay);
-
-      auto [transition, wait] = NextTransition(transitions);
-      Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
-      sleep(wait);
-      Debug::log(INFO, "┣ Applying CTM of {}K: {}", transition.kelvin, transition.matrix.toString());
-      state.ctm = t.matrix;
-
-      // while (wl_display_dispatch(state.wlDisplay) != -1) {
-      //   ;
-      // }
+    while (wl_display_dispatch(state.wlDisplay) != -1) {
+      ;
     }
 
     return 0;
