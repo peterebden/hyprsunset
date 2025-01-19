@@ -169,8 +169,10 @@ static void commitCTMs() {
 }
 
 static void printHelp() {
-  Debug::log(NONE, "┣ Usage: hyprsunset <time1>:<temperature1> [<time2>:<temperature2> ...]");
-  Debug::log(NONE, "┣ For example: hyprsunset 0900:6000 2100:4000");
+  Debug::log(NONE, "┣ Usage:");
+  Debug::log(NONE, "┣ --transition        -t  →  Set the transition time / temperature in kelvin (e.g. 2100:4000)");
+  Debug::log(NONE, "┣ --duration          -d  →  The duration (in seconds) to fade to the new temperature over");
+  Debug::log(NONE, "┣ --help              -h  →  Print this info");
   Debug::log(NONE, "╹");
 }
 
@@ -178,16 +180,44 @@ int main(int argc, char** argv, char** envp) {
     Debug::log(NONE, "┏ hyprsunset v{} ━━╸", HYPRSUNSET_VERSION);
     Debug::log(NONE, "┃");
 
-    const vector<string> args(argv + 1, argv + argc);
-    if (std::find(args.begin(), args.end(), "--help") != args.end() || std::find(args.begin(), args.end(), "-h") != args.end() || args.empty()) {
-      printHelp();
-      return 0;
-    }
     vector<Transition> transitions;
-    try {
-      std::transform(args.begin(), args.end(), std::back_inserter(transitions), ParseTransition);
-    } catch (std::exception& ex) {
-      Debug::log(CRIT, "{}", ex.what());
+    int duration = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i] == std::string{"-t"} || argv[i] == std::string{"--transition"}) {
+            if (i + 1 >= argc) {
+              Debug::log(CRIT, "✖ No argument provided for {}", argv[i]);
+              return 1;
+            }
+            try {
+              transitions.push_back(ParseTransition(argv[i + 1]));
+            } catch (std::exception& ex) {
+              Debug::log(CRIT, "✖ Transition {} is not valid: {}", argv[i + 1], ex.what());
+              return 1;
+            }
+            ++i;
+        } else if (argv[i] == std::string{"-d"} || argv[i] == std::string{"--duration"}) {
+            if (i + 1 >= argc) {
+              Debug::log(CRIT, "✖ No argument provided for {}", argv[i]);
+              return 1;
+            }
+            try {
+              duration = stoi(argv[i + 1]);
+            } catch (std::exception& ex) {
+              Debug::log(CRIT, "✖ Duration {} is not valid", argv[i + 1]);
+              return 1;
+            }
+            ++i;
+        } else if (argv[i] == std::string{"-h"} || argv[i] == std::string{"--help"}) {
+            printHelp();
+            return 0;
+        } else {
+            Debug::log(CRIT, "✖ Argument not recognized: {}", argv[i]);
+            printHelp();
+            return 1;
+        }
+    }
+    if (transitions.empty()) {
+      Debug::log(CRIT, "✖ Required argument -t / --transition not passed at least once");
       return 1;
     }
     Debug::log(INFO, "┣ Transitions loaded:");
