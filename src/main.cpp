@@ -28,10 +28,10 @@ using std::string;
 using std::stoi;
 
 // kindly borrowed from https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
-static Mat3x3 matrixForKelvin(unsigned long long temp) {
+static Mat3x3 matrixForKelvin(unsigned long long temperature) {
     float r = 1.F, g = 1.F, b = 1.F;
 
-    temp /= 100;
+    double temp = (double)temperature / 100.0;
 
     if (temp <= 66) {
         r = 255;
@@ -224,11 +224,11 @@ int main(int argc, char** argv, char** envp) {
     for (const auto& t: transitions) {
       Debug::log(INFO, "┣   {:02}:{:02}: {} {}", t.hour, t.minute, t.Kelvin(), t.matrix.toString());
     }
-    auto t = PrevTransition(transitions);
-    Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}", t.hour, t.minute, t.Kelvin());
+    auto prevTransition = PrevTransition(transitions);
+    Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}", prevTransition.hour, prevTransition.minute, prevTransition.Kelvin());
 
     // set this as the matrix
-    state.SetCTM(t.matrix);
+    state.SetCTM(prevTransition.matrix);
 
     Debug::log(NONE, "┣ Calculated the CTM to be {}", state.CTM().toString());
     Debug::log(NONE, "┃");
@@ -294,9 +294,25 @@ int main(int argc, char** argv, char** envp) {
         auto [transition, wait] = NextTransition(transitions);
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         sleep(wait);
-        Debug::log(INFO, "┣ Applying CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
-        state.SetCTM(t.matrix);
+        if (duration > 0) {
+          Debug::log(INFO, "┣ Beginning transition to CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
+          int lastKelvin = prevTransition.kelvin;
+          for (int i = 0; i < duration; ++i) {
+            double proportion = (double)i / double(duration);
+            int kelvin = (int)(proportion * (transition.kelvin - prevTransition.kelvin)) + prevTransition.kelvin;
+            if (kelvin != lastKelvin) {
+              Debug::log(INFO, "┣ Setting CTM of {}: {}", kelvin, matrixForKelvin(kelvin).toString());
+              state.SetCTM(matrixForKelvin(kelvin));
+              applyCTMs();
+              lastKelvin = kelvin;
+            }
+            sleep(1);
+          }
+        }
+        Debug::log(INFO, "┣ Setting CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
+        state.SetCTM(transition.matrix);
         applyCTMs();
+        prevTransition = transition;
       }
     });
 
