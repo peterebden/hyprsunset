@@ -187,7 +187,7 @@ int main(int argc, char** argv, char** envp) {
     try {
       std::transform(args.begin(), args.end(), std::back_inserter(transitions), ParseTransition);
     } catch (std::exception& ex) {
-      Debug::log(CRIT, "%s", ex.what());
+      Debug::log(CRIT, "{}", ex.what());
       return 1;
     }
     Debug::log(INFO, "┣ Transitions loaded:");
