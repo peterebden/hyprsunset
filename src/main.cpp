@@ -4,6 +4,7 @@
 #include <format>
 #include <fstream>
 #include <mutex>
+#include <semaphore>
 #include <sys/signal.h>
 #include <time.h>
 #include <thread>
@@ -312,11 +313,13 @@ int main(int argc, char** argv, char** envp) {
         return 1;
     }
 
-    auto applyCTMs = [] {
+    std::counting_semaphore<> semaphore(0);
+    auto applyCTMs = [&semaphore] {
         for (auto& o : state.outputs) {
           o->applyCTM();
         }
         commitCTMs();
+        semaphore.release();
     };
 
     Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
@@ -353,8 +356,15 @@ int main(int argc, char** argv, char** envp) {
       }
     });
 
-    while (wl_display_dispatch(state.wlDisplay) != -1) {
-      ;
+    while (true) {
+      wl_display_flush(state.wlDisplay);
+      if (wl_display_prepare_read(state.wlDisplay) == 0) {
+        wl_display_read_events(state.wlDisplay);
+        wl_display_dispatch_pending(state.wlDisplay);
+      } else {
+        wl_display_dispatch(state.wlDisplay);
+      }
+      semaphore.acquire();
     }
 
     return 0;
