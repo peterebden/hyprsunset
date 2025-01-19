@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <format>
+#include <fstream>
 #include <mutex>
 #include <sys/signal.h>
 #include <time.h>
@@ -22,6 +23,7 @@ using namespace Hyprutils::Memory;
 #define SP CSharedPointer
 #define WP CWeakPointer
 
+using std::ofstream;
 using std::pair;
 using std::vector;
 using std::string;
@@ -164,6 +166,24 @@ void SOutput::applyCTM() {
                                        wl_fixed_from_double(arr[8]));
 }
 
+void writeFile(const string& file, int kelvin, int minTemp, int maxTemp) {
+  if (!file.empty()) {
+    try {
+      const double percentage = 100.0 * (double)(kelvin - minTemp) / (double)(maxTemp - minTemp);
+      ofstream f(file);
+      f << std::format(R"({{
+  "text": "{}K",
+  "tooltip": "Current temperature: {}K",
+  "class: "p{}",
+  "percentage": {},
+}})", kelvin, kelvin, percentage, percentage);
+      f.close();
+    } catch (std::exception& ex) {
+      Debug::log(WARN, "✖ Couldn't write output file: {}", ex.what());
+    }
+  }
+}
+
 static void commitCTMs() {
     state.pCTMMgr->sendCommit();
 }
@@ -172,6 +192,7 @@ static void printHelp() {
   Debug::log(NONE, "┣ Usage:");
   Debug::log(NONE, "┣ --transition        -t  →  Set the transition time / temperature in kelvin (e.g. 2100:4000)");
   Debug::log(NONE, "┣ --duration          -d  →  The duration (in seconds) to fade to the new temperature over");
+  Debug::log(NONE, "┣ --file              -f  →  Filename to write the latest temperature update to");
   Debug::log(NONE, "┣ --help              -h  →  Print this info");
   Debug::log(NONE, "╹");
 }
@@ -182,6 +203,7 @@ int main(int argc, char** argv, char** envp) {
 
     vector<Transition> transitions;
     int duration = 0;
+    string file;
     for (int i = 1; i < argc; ++i) {
         if (argv[i] == std::string{"-t"} || argv[i] == std::string{"--transition"}) {
             if (i + 1 >= argc) {
@@ -207,6 +229,13 @@ int main(int argc, char** argv, char** envp) {
               return 1;
             }
             ++i;
+        } else if (argv[i] == std::string{"-f"} || argv[i] == std::string{"--file"}) {
+            if (i + 1 >= argc) {
+              Debug::log(CRIT, "✖ No argument provided for {}", argv[i]);
+              return 1;
+            }
+            file = argv[i + 1];
+            ++i;
         } else if (argv[i] == std::string{"-h"} || argv[i] == std::string{"--help"}) {
             printHelp();
             return 0;
@@ -224,6 +253,11 @@ int main(int argc, char** argv, char** envp) {
     for (const auto& t: transitions) {
       Debug::log(INFO, "┣   {:02}:{:02}: {} {}", t.hour, t.minute, t.Kelvin(), t.matrix.toString());
     }
+    auto compareKelvin = [] (const Transition& a, const Transition& b) {
+      return a.kelvin < b.kelvin;
+    };
+    const int minTemp = std::min_element(transitions.begin(), transitions.end(), compareKelvin)->kelvin;
+    const int maxTemp = std::max_element(transitions.begin(), transitions.end(), compareKelvin)->kelvin;
     auto prevTransition = PrevTransition(transitions);
     Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}", prevTransition.hour, prevTransition.minute, prevTransition.Kelvin());
 
@@ -274,7 +308,7 @@ int main(int argc, char** argv, char** envp) {
     wl_display_roundtrip(state.wlDisplay);
 
     if (!state.pCTMMgr) {
-        Debug::log(NONE, "✖ Compositor doesn't support hyprland-ctm-control-v1, are you running on Hyprland?");
+        Debug::log(CRIT, "✖ Compositor doesn't support hyprland-ctm-control-v1, are you running on Hyprland?");
         return 1;
     }
 
@@ -287,6 +321,7 @@ int main(int argc, char** argv, char** envp) {
 
     Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
     applyCTMs();
+    writeFile(file, prevTransition.kelvin, minTemp, maxTemp);
     state.initialized = true;
 
     std::thread thread([&] {
@@ -304,6 +339,7 @@ int main(int argc, char** argv, char** envp) {
               Debug::log(INFO, "┣ Setting CTM of {}: {}", kelvin, matrixForKelvin(kelvin).toString());
               state.SetCTM(matrixForKelvin(kelvin));
               applyCTMs();
+              writeFile(file, prevTransition.kelvin, minTemp, maxTemp);
               lastKelvin = kelvin;
             }
             sleep(1);
@@ -311,8 +347,9 @@ int main(int argc, char** argv, char** envp) {
         }
         Debug::log(INFO, "┣ Setting CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
         state.SetCTM(transition.matrix);
-        applyCTMs();
         prevTransition = transition;
+        applyCTMs();
+        writeFile(file, prevTransition.kelvin, minTemp, maxTemp);
       }
     });
 
