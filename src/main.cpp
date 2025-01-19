@@ -265,7 +265,7 @@ int main(int argc, char** argv, char** envp) {
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         sleep(wait);
         Debug::log(INFO, "┣ Applying CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
-        state.SetCTM(t.matrix);
+        state.SetCTM(transition.matrix);
         applyCTMs();
       }
     });
