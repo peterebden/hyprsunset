@@ -314,17 +314,18 @@ int main(int argc, char** argv, char** envp) {
     }
 
     std::counting_semaphore<> semaphore(0);
-    auto applyCTMs = [&semaphore] {
+    auto applyCTMs = [&semaphore, &file, &minTemp, &maxTemp] (const Mat3x3& matrix, int kelvin) {
+        state.SetCTM(matrix);
         for (auto& o : state.outputs) {
           o->applyCTM();
         }
         commitCTMs();
         semaphore.release();
+        writeFile(file, kelvin, minTemp, maxTemp);
     };
 
     Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
-    applyCTMs();
-    writeFile(file, prevTransition.kelvin, minTemp, maxTemp);
+    applyCTMs(prevTransition.matrix, prevTransition.kelvin);
     state.initialized = true;
 
     std::thread thread([&] {
@@ -339,20 +340,15 @@ int main(int argc, char** argv, char** envp) {
             double proportion = (double)i / double(duration);
             int kelvin = (int)(proportion * (transition.kelvin - prevTransition.kelvin)) + prevTransition.kelvin;
             if (kelvin != lastKelvin) {
-              Debug::log(INFO, "┣ Setting CTM of {}: {}", kelvin, matrixForKelvin(kelvin).toString());
-              state.SetCTM(matrixForKelvin(kelvin));
-              applyCTMs();
-              writeFile(file, prevTransition.kelvin, minTemp, maxTemp);
+              applyCTMs(matrixForKelvin(kelvin), kelvin);
               lastKelvin = kelvin;
             }
             sleep(1);
           }
         }
         Debug::log(INFO, "┣ Setting CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
-        state.SetCTM(transition.matrix);
+        applyCTMs(transition.matrix, transition.kelvin);
         prevTransition = transition;
-        applyCTMs();
-        writeFile(file, prevTransition.kelvin, minTemp, maxTemp);
       }
     });
 
