@@ -4,6 +4,7 @@
 #include <format>
 #include <fstream>
 #include <mutex>
+#include <queue>
 #include <semaphore>
 #include <sys/signal.h>
 #include <time.h>
@@ -64,21 +65,33 @@ struct {
     wl_display*                       wlDisplay = nullptr;
     std::vector<SP<SOutput>>          outputs;
     bool                              initialized = false;
-
-    Mat3x3 CTM() const {
-      std::lock_guard<std::mutex> guard(lock);
-      return ctm;
-    }
-
-    void SetCTM(const Mat3x3& matrix) {
-      std::lock_guard<std::mutex> guard(lock);
-      ctm = matrix;
-    }
-
-private:
     Mat3x3             ctm;
-    mutable std::mutex lock;
 } state;
+
+// Blocking queue used to communicate between threads
+template <typename T> class Queue {
+ public:
+  Queue(): semaphore(0) {}
+
+  void push(const T& t) {
+    std::lock_guard<std::mutex> guard(lock);
+    queue.push(t);
+    semaphore.release();
+  };
+
+  T pop() {
+    semaphore.acquire();
+    std::lock_guard<std::mutex> guard(lock);
+    T t = queue.front();
+    queue.pop();
+    return t;
+  }
+
+ private:
+  std::queue<T> queue;
+  std::mutex lock;
+  std::counting_semaphore<> semaphore;
+};
 
 struct Transition {
   int hour;
@@ -161,7 +174,7 @@ void sigHandler(int sig) {
 }
 
 void SOutput::applyCTM() {
-    auto arr = state.CTM().getMatrix();
+    auto arr = state.ctm.getMatrix();
     state.pCTMMgr->sendSetCtmForOutput(output->resource(), wl_fixed_from_double(arr[0]), wl_fixed_from_double(arr[1]), wl_fixed_from_double(arr[2]), wl_fixed_from_double(arr[3]),
                                        wl_fixed_from_double(arr[4]), wl_fixed_from_double(arr[5]), wl_fixed_from_double(arr[6]), wl_fixed_from_double(arr[7]),
                                        wl_fixed_from_double(arr[8]));
@@ -263,9 +276,9 @@ int main(int argc, char** argv, char** envp) {
     Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}", prevTransition.hour, prevTransition.minute, prevTransition.Kelvin());
 
     // set this as the matrix
-    state.SetCTM(prevTransition.matrix);
+    state.ctm = prevTransition.matrix;
 
-    Debug::log(NONE, "┣ Calculated the CTM to be {}", state.CTM().toString());
+    Debug::log(NONE, "┣ Calculated the CTM to be {}", state.ctm.toString());
     Debug::log(NONE, "┃");
 
     // connect to the wayland server
@@ -313,20 +326,10 @@ int main(int argc, char** argv, char** envp) {
         return 1;
     }
 
-    std::counting_semaphore<> semaphore(0);
-    auto applyCTMs = [&semaphore, &file, &minTemp, &maxTemp] (const Mat3x3& matrix, int kelvin) {
-        state.SetCTM(matrix);
-        for (auto& o : state.outputs) {
-          o->applyCTM();
-        }
-        commitCTMs();
-        semaphore.release();
-        writeFile(file, kelvin, minTemp, maxTemp);
-    };
-
     Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
-    applyCTMs(prevTransition.matrix, prevTransition.kelvin);
     state.initialized = true;
+    Queue<int> queue;
+    queue.push(prevTransition.kelvin);
 
     std::thread thread([&] {
       while (true) {
@@ -334,20 +337,19 @@ int main(int argc, char** argv, char** envp) {
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         sleep(wait);
         if (duration > 0) {
-          Debug::log(INFO, "┣ Beginning transition to CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
           int lastKelvin = prevTransition.kelvin;
           for (int i = 0; i < duration; ++i) {
             double proportion = (double)i / double(duration);
             int kelvin = (int)(proportion * (transition.kelvin - prevTransition.kelvin)) + prevTransition.kelvin;
             if (kelvin != lastKelvin) {
-              applyCTMs(matrixForKelvin(kelvin), kelvin);
+              queue.push(kelvin);
               lastKelvin = kelvin;
             }
             sleep(1);
           }
         }
-        Debug::log(INFO, "┣ Setting CTM of {}: {}", transition.Kelvin(), transition.matrix.toString());
-        applyCTMs(transition.matrix, transition.kelvin);
+        Debug::log(INFO, "┣ New CTM of {}: {}", transition.kelvin, transition.matrix.toString());
+        queue.push(transition.kelvin);
         prevTransition = transition;
       }
     });
@@ -360,7 +362,14 @@ int main(int argc, char** argv, char** envp) {
       } else {
         wl_display_dispatch(state.wlDisplay);
       }
-      semaphore.acquire();
+      const int kelvin = queue.pop();
+      const Mat3x3 matrix = matrixForKelvin(kelvin);
+      state.ctm = matrix;
+      for (auto& o : state.outputs) {
+        o->applyCTM();
+      }
+      commitCTMs();
+      writeFile(file, kelvin, minTemp, maxTemp);
     }
 
     return 0;
