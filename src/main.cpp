@@ -185,12 +185,7 @@ void writeFile(const string& file, int kelvin, int minTemp, int maxTemp) {
     try {
       const double percentage = 100.0 * (double)(kelvin - minTemp) / (double)(maxTemp - minTemp);
       ofstream f(file);
-      f << std::format(R"({{
-  "text": "{}K",
-  "tooltip": "Current temperature: {}K",
-  "class: "p{}",
-  "percentage": {},
-}})", kelvin, kelvin, percentage, percentage);
+      f << std::format(R"({{"text": "{}K","tooltip": "Current temperature: {}K","class: "p{}","percentage": {}}})", kelvin, kelvin, percentage, percentage);
       f.close();
     } catch (std::exception& ex) {
       Debug::log(WARN, "✖ Couldn't write output file: {}", ex.what());
