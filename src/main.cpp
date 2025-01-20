@@ -31,6 +31,9 @@ using std::vector;
 using std::string;
 using std::stoi;
 
+// The kelvin value we use that is close to the identity matrix (e.g. when interpolating)
+static const int kIdentityKelvin = 6600;
+
 // kindly borrowed from https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
 static Mat3x3 matrixForKelvin(unsigned long long temperature) {
     float r = 1.F, g = 1.F, b = 1.F;
@@ -97,23 +100,27 @@ struct Transition {
   int hour;
   int minute;
   int kelvin;
-  Mat3x3 matrix;
+  bool identity;
 
   int SecondOfDay() const {
     return hour * 60 * 60 + minute * 60;
   }
 
   string Kelvin() const {
-    return kelvin == 0 ? "identity" : std::to_string(kelvin) + "K";
+    return identity ? "identity" : std::to_string(kelvin) + "K";
+  }
+
+  Mat3x3 Matrix() const {
+    return identity ? Mat3x3::identity() : matrixForKelvin(kelvin);
   }
 };
 
-Transition CreateTransition(const string& arg, int kelvin, Mat3x3 matrix) {
+Transition CreateTransition(const string& arg, int kelvin, bool identity) {
   return Transition{
     .hour = stoi(arg.substr(0, 2)),
     .minute = stoi(arg.substr(2, 4)),
     .kelvin = kelvin,
-    .matrix = matrix,
+    .identity = identity,
   };
 }
 
@@ -122,14 +129,14 @@ Transition ParseTransition(const string& arg) {
   // Special case for the identity matrix (suffixed with :i or :identity)
   // Otherwise the only acceptable format is <4 digits>:<4 digits>
   if (arg.ends_with(":i") && arg.size() == 6) {
-    return CreateTransition(arg, 0, Mat3x3::identity());
+    return CreateTransition(arg, kIdentityKelvin, true);
   } else if (arg.ends_with(":identity") && arg.size() == 13) {
-    return CreateTransition(arg, 0, Mat3x3::identity());
+    return CreateTransition(arg, kIdentityKelvin, true);
   } else if (arg.size() != 9 || arg[4] != ':') {
     throw std::runtime_error(std::format("invalid argument: {}", arg));
   }
   const int kelvin = stoi(arg.substr(5, 9));
-  return CreateTransition(arg, kelvin, matrixForKelvin(kelvin));
+  return CreateTransition(arg, kelvin, false);
 }
 
 // Finds an iterator corresponding to the upcoming transition & how long we should wait for it (in seconds)
@@ -260,7 +267,7 @@ int main(int argc, char** argv, char** envp) {
     }
     Debug::log(INFO, "┣ Transitions loaded:");
     for (const auto& t: transitions) {
-      Debug::log(INFO, "┣   {:02}:{:02}: {} {}", t.hour, t.minute, t.Kelvin(), t.matrix.toString());
+      Debug::log(INFO, "┣   {:02}:{:02}: {} {}", t.hour, t.minute, t.Kelvin(), t.Matrix().toString());
     }
     auto compareKelvin = [] (const Transition& a, const Transition& b) {
       return a.kelvin < b.kelvin;
@@ -271,7 +278,7 @@ int main(int argc, char** argv, char** envp) {
     Debug::log(INFO, "┣ Current state: {:02}:{:02}: {}", prevTransition.hour, prevTransition.minute, prevTransition.Kelvin());
 
     // set this as the matrix
-    state.ctm = prevTransition.matrix;
+    state.ctm = prevTransition.Matrix();
 
     Debug::log(NONE, "┣ Calculated the CTM to be {}", state.ctm.toString());
     Debug::log(NONE, "┃");
@@ -323,8 +330,8 @@ int main(int argc, char** argv, char** envp) {
 
     Debug::log(NONE, "┣ Found {} outputs, applying CTMs", state.outputs.size());
     state.initialized = true;
-    Queue<int> queue;
-    queue.push(prevTransition.kelvin);
+    Queue<Transition> queue;
+    queue.push(prevTransition);
 
     std::thread thread([&] {
       while (true) {
@@ -332,19 +339,20 @@ int main(int argc, char** argv, char** envp) {
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         sleep(wait);
         if (duration > 0) {
+          Debug::log(INFO, "┣ Beginning transition to {}: {}", transition.kelvin, transition.Matrix().toString());
           int lastKelvin = prevTransition.kelvin;
           for (int i = 0; i < duration; ++i) {
             double proportion = (double)i / double(duration);
             int kelvin = (int)(proportion * (transition.kelvin - prevTransition.kelvin)) + prevTransition.kelvin;
             if (kelvin != lastKelvin) {
-              queue.push(kelvin);
+              queue.push(Transition{.kelvin = kelvin});
               lastKelvin = kelvin;
             }
             sleep(1);
           }
         }
-        Debug::log(INFO, "┣ New CTM of {}: {}", transition.kelvin, transition.matrix.toString());
-        queue.push(transition.kelvin);
+        Debug::log(INFO, "┣ New CTM of {}: {}", transition.kelvin, transition.Matrix().toString());
+        queue.push(transition);
         prevTransition = transition;
       }
     });
@@ -357,14 +365,13 @@ int main(int argc, char** argv, char** envp) {
       } else {
         wl_display_dispatch(state.wlDisplay);
       }
-      const int kelvin = queue.pop();
-      const Mat3x3 matrix = matrixForKelvin(kelvin);
-      state.ctm = matrix;
+      const Transition t = queue.pop();
+      state.ctm = t.Matrix();
       for (auto& o : state.outputs) {
         o->applyCTM();
       }
       commitCTMs();
-      writeFile(file, kelvin, minTemp, maxTemp);
+      writeFile(file, t.kelvin, minTemp, maxTemp);
     }
 
     return 0;
