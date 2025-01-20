@@ -337,7 +337,10 @@ int main(int argc, char** argv, char** envp) {
       while (true) {
         auto [transition, wait] = NextTransition(transitions);
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
-        sleep(wait);
+        // Some care is needed here to deal with the machine suspending; sleep(3) will oversleep in those cases.
+        struct timespec ts{.tv_sec = duration};
+        while (clock_nanosleep(CLOCK_BOOTTIME, 0, &ts, &ts) == EINTR);
+
         if (duration > 0) {
           Debug::log(INFO, "┣ Beginning transition to {}: {}", transition.kelvin, transition.Matrix().toString());
           int lastKelvin = prevTransition.kelvin;
@@ -348,6 +351,7 @@ int main(int argc, char** argv, char** envp) {
               queue.push(Transition{.kelvin = kelvin});
               lastKelvin = kelvin;
             }
+            // TODO: this should also take suspending into account (if we suspend partway through, we should skip forward on resume).
             sleep(1);
           }
         }
