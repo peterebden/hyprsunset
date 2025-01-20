@@ -342,6 +342,7 @@ int main(int argc, char** argv, char** envp) {
         while (clock_nanosleep(CLOCK_BOOTTIME, 0, &ts, &ts) == EINTR);
 
         if (duration > 0) {
+          clock_gettime(CLOCK_BOOTTIME, &ts);
           Debug::log(INFO, "┣ Beginning transition to {}: {}", transition.kelvin, transition.Matrix().toString());
           int lastKelvin = prevTransition.kelvin;
           for (int i = 0; i < duration; ++i) {
@@ -351,8 +352,8 @@ int main(int argc, char** argv, char** envp) {
               queue.push(Transition{.kelvin = kelvin});
               lastKelvin = kelvin;
             }
-            // TODO: this should also take suspending into account (if we suspend partway through, we should skip forward on resume).
-            sleep(1);
+            ts.tv_sec++;
+            clock_nanosleep(CLOCK_BOOTTIME, TIMER_ABSTIME, &ts, NULL);
           }
         }
         Debug::log(INFO, "┣ New CTM of {}: {}", transition.kelvin, transition.Matrix().toString());
