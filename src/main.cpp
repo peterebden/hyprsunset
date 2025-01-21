@@ -192,7 +192,7 @@ void writeFile(const string& file, int kelvin, int minTemp, int maxTemp) {
     try {
       const double percentage = 100.0 * (double)(kelvin - minTemp) / (double)(maxTemp - minTemp);
       ofstream f(file);
-      f << std::format(R"({{"text":"{}K","tooltip":"Current temperature: {}K","class: "p{:0.0f}","percentage":{:0.2f}}})", kelvin, kelvin, percentage, percentage);
+      f << std::format(R"({{"text":"{}K","tooltip":"Current temperature: {}K","class":"p{:0.0f}","percentage":{:0.2f}}})", kelvin, kelvin, percentage, percentage);
       f.close();
     } catch (std::exception& ex) {
       Debug::log(WARN, "✖ Couldn't write output file: {}", ex.what());
@@ -338,11 +338,13 @@ int main(int argc, char** argv, char** envp) {
         auto [transition, wait] = NextTransition(transitions);
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         // Some care is needed here to deal with the machine suspending; sleep(3) will oversleep in those cases.
-        struct timespec ts{.tv_sec = wait, .tv_nsec = 0};
-        while (clock_nanosleep(CLOCK_BOOTTIME, 0, &ts, &ts) == EINTR);
+        struct timespec ts{};
+        clock_gettime(CLOCK_BOOTTIME, &ts);
+        ts.tv_sec += wait;
+        ts.tv_nsec = 0;
+        while (clock_nanosleep(CLOCK_BOOTTIME, TIMER_ABSTIME, &ts, &ts) == EINTR);
 
         if (duration > 0) {
-          clock_gettime(CLOCK_BOOTTIME, &ts);
           Debug::log(INFO, "┣ Beginning transition to {}: {}", transition.kelvin, transition.Matrix().toString());
           int lastKelvin = prevTransition.kelvin;
           for (int i = 0; i < duration; ++i) {
@@ -356,7 +358,7 @@ int main(int argc, char** argv, char** envp) {
             clock_nanosleep(CLOCK_BOOTTIME, TIMER_ABSTIME, &ts, NULL);
           }
         }
-        Debug::log(INFO, "┣ New CTM of {}: {}", transition.kelvin, transition.Matrix().toString());
+        Debug::log(INFO, "┣ New CTM of {}: {}", transition.Kelvin(), transition.Matrix().toString());
         queue.push(transition);
         prevTransition = transition;
       }
