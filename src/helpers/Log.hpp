@@ -1,6 +1,7 @@
 #include <format>
 #include <fstream>
 #include <string>
+#include <time.h>
 
 enum LogLevel {
     NONE = -1,
@@ -15,6 +16,10 @@ enum LogLevel {
 namespace Debug {
     template <typename... Args>
     void log(LogLevel level, std::format_string<Args...> fmt, Args&&... args) {
+        struct tm now;
+        time_t ts = time(NULL);
+        localtime_r(&ts, &now);
+        std::cout << std::format("{:02}:{:02}:{:02} ", now.tm_hour, now.tm_min, now.tm_sec);
         switch (level) {
             case NONE: std::cout << "       "; break;
             case LOG: std::cout << "[LOG]  "; break;
