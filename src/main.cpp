@@ -338,7 +338,7 @@ int main(int argc, char** argv, char** envp) {
         auto [transition, wait] = NextTransition(transitions);
         Debug::log(INFO, "┣ Waiting {}s for next transition (at {:02}:{:02})", wait, transition.hour, transition.minute);
         // Some care is needed here to deal with the machine suspending; sleep(3) will oversleep in those cases.
-        struct timespec ts{.tv_sec = duration, .tv_nsec = 0};
+        struct timespec ts{.tv_sec = wait, .tv_nsec = 0};
         while (clock_nanosleep(CLOCK_BOOTTIME, 0, &ts, &ts) == EINTR);
 
         if (duration > 0) {
